@@ -2,32 +2,23 @@
 title: An R Markdown document converted from "quickstart-physical-activity-recognition-bda2021.ipynb"
 output: html_document
 ---
+<!-- The ipynb exporter doesn't like the yaml part of the file -->
+# Physical activity recognition - Group 6
+- David Coba
+- Fridtjof Petersen 
+- Leonhard Volz
 
 ```{r}
 library(tidyverse) 
-list.files(path = "../input")
-
-.... = NA
 ```
 
 ```{r}
-# Make sure the data is available
-if (length(list.files("../input", pattern = "recognition")) > 0) {
-    
-    # Copy all files to the current directory
-    system("cp -r ../input/bda-2021-physical-activity-recognition/* ./")
-    
-} else {
-    
-    # Download data for this competition
-    data_url = "https://phonesensordata.netlify.app/Archive.zip"
-    download.file(data_url, "Archive.zip")
-
-    # Unzip all files in the current directory
-    unzip("Archive.zip")
-    
-}
-
+# Switch to TRUE when submitting the notebook to Kaggle
+RUN_IN_KAGGLE <- FALSE
+if (RUN_IN_KAGGLE) {
+  # Copy all files to the current directory
+  system("cp -r ../input/bda-2021-physical-activity-recognition/* ./")
+} 
 # list files in the current working directory
 list.files()
 
