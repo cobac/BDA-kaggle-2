@@ -1,0 +1,500 @@
+---
+title: An R Markdown document converted from "quickstart-physical-activity-recognition-bda2021.ipynb"
+output: html_document
+---
+
+```{r}
+library(tidyverse) 
+list.files(path = "../input")
+
+.... = NA
+```
+
+```{r}
+# Make sure the data is available
+if (length(list.files("../input", pattern = "recognition")) > 0) {
+    
+    # Copy all files to the current directory
+    system("cp -r ../input/bda-2021-physical-activity-recognition/* ./")
+    
+} else {
+    
+    # Download data for this competition
+    data_url = "https://phonesensordata.netlify.app/Archive.zip"
+    download.file(data_url, "Archive.zip")
+
+    # Unzip all files in the current directory
+    unzip("Archive.zip")
+    
+}
+
+# list files in the current working directory
+list.files()
+
+# show the content of the labels file 
+file.show("activity_labels.txt")
+```
+
+
+# 1. Reading the data
+
+
+The data are stored in text files. 
+
+- There are text files that store the signals for each user for each experiment (trial; 3 trials per person).
+- There is a text file that stores the activity labels for segments of signals for all participants for each experiment.
+
+The code below does most of the heavy lifting for you.
+
+# 1.1 Import Activity labels
+
+First import the activity labels:
+
+```{r}
+act_labels = read_delim("activity_labels.txt"," ",col_names=F,trim_ws=T) 
+act_labels = act_labels %>% select(X1,X2)
+act_labels 
+```
+
+The signals themselves are stored in text files. In these files there are three columns; each column is the signal measured in one of the 3 channels of the sensor (these channels are associated in X, Y and Z direction). Each signal consists of a sequence of measurements, called _samples_.
+
+For each subject the file `/archive/RawData/labels.txt` stores the trial number, user ID, activity together with the sample number at which the activity started, and the sample number at which time the activity ended.
+
+```{r}
+labels = read_delim("./RawData/Train/labels_train.txt", " ", col_names = F)
+colnames(labels) <- c('trial', 'userid', 'activity', 'start', 'end')
+
+labels = labels %>% mutate(activity = act_labels$X2[activity])
+```
+
+Let's have a look at the labels data frame:
+
+```{r}
+print(labels)
+```
+
+The data frame encodes the `start` and `end` sample for each subsequent activity in signal files, for each `trial` and `userid`.  
+
+What should be noticed is that some activities were repeated at different times during the recording, which results in multiple time (sample) windows in which the participant was for instance `WALKING_UPSTAIRS`.
+
+For each user there are several files. Although you may be inclined to think in terms of "users" (as they are participants), it's easier to focus on the files, because there in some cases multiple files per user.
+
+Here we'll import only the files of which the filename starts with 'acc' (for 'accelorometer' as opposed to 'gyroscope'). 
+
+The filenames contain information about the participant ID (prefixed with `user`), and about the experimental run (prefixed with `exp`). The latter isn't very usefull, but we will need it anyway extract the proper rows from the `labels` data frame above. We need to retain this information, and therefore we use "regular expressions" to extract them
+
+```{r}
+# identify the file name and extract the 'username' (participant ID) and 'expname' (experimental run)
+filename = "RawData/Train/acc_exp01_user01.txt"
+username = gsub(".+user(\\d+).+", "\\1", filename) %>% as.integer()
+expname  = gsub(".+exp(\\d+).+", "\\1", filename) %>% as.integer()
+
+# import the data from the file
+user01 = read_delim(filename, " ", col_names = F)
+```
+
+# 1.2 Import the signals
+
+Let's have a peek at the imported data:
+
+```{r}
+head(user01)
+```
+
+Each column is a signal. Subsequent rows are subsequent measurement samples, and so we treat rownumber as a time indicator (to keep the distinction clear we'll talk about sample number).
+
+Let's have a look at the signal wave forms:
+
+```{r}
+options(repr.plot.width=12)
+
+plot.ts(user01, xlab="Sample number")
+```
+
+Clearly different segments from horizontal axis correspond to different activities. We need to label different samples with the corresponding activity.
+
+
+# 1.3 Merging Signals and Labels
+
+The data frame `labels` contains this information, but in a somewhat odd format: Each row specifies at which samples an activity for a given participant in a given experimental run started and ended. For example, the first two rows
+
+```{r}
+print(labels[1:2,])
+```
+
+It is much handier to have a data frame that gives an activity label for each `trial`, `userid` and each time `sampleid`. We can compute this from the `labels` data frame with a nifty feature that you may not know about: Cells in a `tibble` can contain a `list()`. This is usefull for storing groups of values that all share the same values on other variables. Tibbles with such cells are called "nested". They can be expanded to a normal `tibble` or data frame with the `dplyr::unnest()` function. We'll use above `label` data frame to demonstrate this: First we add the sequence `start:end` inside a `list()` to each row of `labels`. For instance, the first two rows above become 
+
+```
+  trial userid activity     start   end sampleid 
+  <dbl>  <dbl> <chr>        <dbl> <dbl> <list>   
+1     1      1 STANDING       250  1232 list( 250:1232)
+2     1      1 STAND_TO_SIT  1233  1392 list(1233:1392)
+```
+
+```{r}
+# Add the sequence start:end to each row in a list.
+# The result is a nested table:
+sample_labels_nested = 
+    labels %>% 
+    rowwise() %>% # do next operation(s) rowwise
+    mutate(sampleid = list(start:end)) %>%
+    ungroup()
+
+# Check the resulting table:
+print(sample_labels_nested, n=6) 
+```
+
+Note that dplyr prints only a summary of the 'sampleid' column, in a rather abstract way (e.g., `<int [983]>` under `sampleid` means: `sampleid` contains 983 integers for row 1).
+
+
+Next we unnest the nested tibble `sample_labels_nested` to obtain a table that for each `sampleid` value stores the right `activity` label. There is however one issue: Each row corresponds to a signal segment of an activity. Some of the activities, such as WALKING, were done multiple times in the same experiment in different time segments. We need to be able to identify different segments of WALKING. Therefore, before unnesting, we'll add the row numbers as `segment` ID:
+
+```{r}
+# Unnest the nested tabel.
+sample_labels = 
+    sample_labels_nested %>% 
+
+    # Rows are segments, we need to keep track of different segements
+    mutate(segment = row_number() ) %>% 
+
+    # Expand the data frame to one sample per row
+unnest(cols = c(sampleid)) %>% 
+
+# Remove columns we don't need anymore
+select(-start, -end) 
+
+
+# Check the result (first few rows are not interesting; rows 977-990 are)
+print(sample_labels[977:990, ])
+```
+
+Now that we have each sample labeled with an activity, we can add the corresponding signals values that are stored in `user01`.
+
+Let's put the signals `user01` in a data frame in which we include the `userid`, the `trial` number, and a `sampleid` for each row in `user01`. Then we'll use a `left_joint()` to merge the activity labels: 
+
+```{r}
+user_df = 
+    # Store signals user01 in a data frame, with 'userid' and 'trial'
+    data.frame(userid = username, trial = expname, user01) %>%
+
+    # Add 'sampleid' for matching the sampleid's in 'sample_labels'. 
+    # The first sample in user01 signals always has sampleid=0; the last
+    # has sampleid is therefore nrow(user01)-1.
+    mutate(sampleid = 0:(nrow(user01)-1) ) %>%
+
+    # Add the labels stored in sample_labels
+    left_join(sample_labels) 
+
+# Check the result (first few rows are not interesting; the following are)
+print(user_df[1227:1239, ])
+```
+
+This table is exactly what we need: Each sample from signals in `X1`, `X2`, and `X3` now are labeled with an `activity`.
+
+To visualize the result, use `ggplot()` which makes it allows to give different signal segments different colors to label the activity in that segment:
+
+```{r}
+options(repr.plot.width=15) # change plot width for nicer output
+
+user_df %>% 
+  ggplot(aes(x = sampleid, y = X1, col = factor(activity), group=segment)) + 
+      geom_line()  
+```
+
+*Note: In the plot you'll notice the weird gray lines crossing through the plot. The gray trace corresponds to non-labeled segments (labeled `NA` in the legend of the plot). The segments that are labeled with an activity are interspersed with short unlabeled segments, which are drawn in gray, which causes the gray trace to connect different unlabeled segments.*
+
+
+# 2. Feature Extraction
+
+Now we are ready to extract features that can be used by the various classification algorithms.
+
+
+# 2.1 Time domain features
+
+For the classification algorithms discussed in chapter 4 of ISLR, the time samples themselves are not useful features. To see this, consider the following plot which shows segments with typical walking cycles (hand picked by closely inspecting the signals).
+
+```{r}
+user_df %>% 
+
+  # change 7986 to 8586 to see shifted walk cycle
+  dplyr::filter(activity == "WALKING", segment == 13, 
+    7596 < sampleid & sampleid < 7986) %>% 
+
+  ggplot(aes(x = sampleid %% 54, y = X1, group = sampleid %/% 54, 
+             col = factor(sampleid %/% 54))) + geom_line() 
+```
+
+Here we defined a time window of 54 samples, in which one complete walking cycle is finished; the next walking cycles are plotted on top of each other. The pattern is clear. The problem is 
+
+1. that we don't know how long the typical pattern is (i.e., how many samples it spans), and 
+2. that the pattern may be shifted relative to the start of our time window so that it appears _shifted_ 
+
+Shifting can occur for any reason, and is visible if you change the `filter` argument `sample < 7986` to `sample < 8686` to show more steps from the signal: the extra steps seem to have shifted.
+
+If we try to combine signals from multiple participants we wouldn't even know how to align the samples. So, how do you decide which samples of different participants are observations for the same 'feature'? 
+
+Hence the samples themselves are better not used as features. What we have to do is compute features that are (more or less) invariant to time shifts. One way to do this is by simply ignoring the time order of the values and look at them as a collection of numbers. The best way to look at unordered collections of numbers is to look at statistical summaries.
+
+For instance, have a look at the histograms per activity
+
+```{r}
+user_df %>%
+    ggplot(aes(X1)) + 
+      geom_histogram(bins=40, fill=1, alpha=0.5) + 
+      geom_histogram(aes(X2), bins=40, fill = 2, alpha=0.5) + 
+      geom_histogram(aes(X3), bins=40, fill = 4, alpha=0.5) +
+      facet_wrap(~activity, scales = "free_y")
+```
+
+The histograms are quite distinct, and we can compute all kinds of statistics for them that characterize their shapes (e.g., mean, sd, skewness, inter-quartile ranges, etc.). Hence, useful features may be found amongst these statstical descriptive measures.
+
+# Epochs
+
+Now there's one other thing concerning these signals: The signals have different activities at different times, and in general, we don't know when an activity is going to start or end. 
+
+In the Test data set you will be asked to predict the activities in subsequent time windows, called _epochs_, of 128 samples (=128 / 50Hz = 2.56 sec). So we will also train the algorithm on the signals that are segmented into _epochs_ of 128 samples.
+
+To do so, we use a clever trick involving integer division: By dividing the sample number by 128 we obtain an integer that will group samples into epochs. For instance say we have sample numbers 0, 2, 3, ..., 14, and we want to group them into 4 epochs of length 3, then integer division yields:
+
+```{r}
+0:14 %/% 3
+```
+
+We use this trick to group the rows in `user` into epochs, and then compute summary statistics per epoch. The result is a data frame with as many rows as there are epochs, and on each row the summary statistics computed. 
+
+```{r}
+# Helper functions
+most_common_value = function(x) {
+    counts = table(x, useNA='no')
+    most_frequent = which.max(counts)
+    return(names(most_frequent))
+}
+
+## Feature functions
+
+lagged_cor = function(x, y=x, lag=0) {
+    # compute correlation between x and a time shifted y
+    r_lagged = cor(x, dplyr::lag(y, lag), use='pairwise')
+    return(r_lagged)
+}
+
+your_feature_1 = function(...) {
+    # your feature computation code
+    ....
+}
+
+your_feature_2 = function(...) {
+    # your feature computation code
+    ....
+}
+# ... etc ...
+
+
+
+# Compute features per epoch:
+
+usertimedom = user_df %>%
+
+  # add an epoch ID variable (on epoch = 2.56 sec)
+  mutate(epoch = sampleid %/% 128) %>% 
+
+  # extract statistical features from each epoch
+  group_by(epoch) %>%
+  summarise(
+      
+      # The epoch's activity label is the mode of 'activity'
+      activity = most_common_value(c("-", activity)),
+      
+      # keep the starting sampleid of epoch as a time marker
+      sampleid = sampleid[1],
+      
+      # compute signal features
+      m1 = mean(X1), 
+      m2 = mean(X2), 
+      sd1 = sd(X1), 
+      q1_25 = quantile(X1, .25),
+      skew1 = e1071::skewness(X1),
+      AR1_1 = lagged_cor(X1, lag=1),
+      AR1_2 = lagged_cor(X1, lag=2),
+      AR12_1 = lagged_cor(X1, X2, lag=1),
+      
+      # ... 
+      # ... your own features ... 
+      # ... (to get inspired, look at the histograms above)
+      # ...
+      
+      # keep track of signal lengths
+      n_samples = n()
+  ) 
+
+head(usertimedom)
+```
+
+This is a tidy data frame that can be used in the classification algorithms discussed in chapters 3 and 4 of ISLR.
+
+*Note You may not be familiar with the `AR1.1`, `AR1.2` and `AR12.1` computed above. These are called _autocorrelations_ (at lags 1 and 2) and _lagged cross-correlations_. They are discussed in [Feature Extraction from Signals](https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL). They are interesting because slowly changing signals have high autocorellations, while fast changing signals have low or even negative autocorrelations.*
+
+
+# 2.2 Frequency domain features
+
+We do not discuss frequency domain features (also known as "spectral" features) at this time, but they are described in the reading materials ([Feature extraction from Signals](https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL)).
+
+# 3. Putting it all together
+
+We've just processed only one file. We need to process all of them and combine the resulting data frames in one big data frame. Here is code for doing that for the accelerometer data files (the ones starting with `acc`). You will need to do the same for the gyroscope data (filenames starting with `gyro`).
+
+To obtain a list of all the files, use `dir()`:
+
+```{r}
+dir("./RawData/Train/", pattern = "^acc")
+```
+
+It's very handy, if not essential, to define a function that takes a data file name and carries out all the steps above. 
+
+Here's such a function (its just copies the code above, and returns the result):
+
+```{r}
+extractTimeDomainFeatures <- function(filename, sample_labels) {
+    
+    # extract user and experimental run ID's from file name
+    username = gsub(".+user(\\d+).+", "\\1", filename) %>% as.numeric()
+    expname  = gsub( ".+exp(\\d+).+", "\\1", filename) %>% as.numeric()
+    
+    # import the sensor signals from the file
+    user01 <- read_delim(filename, " ", col_names = F, progress = TRUE, 
+                 col_types = "ddd")
+    
+    
+    # merge signals with labels 
+    user_df <- 
+        data.frame(userid = username, trial = expname, user01) %>%
+        mutate(sampleid = 0:(nrow(user01)-1) ) %>%
+        left_join(sample_labels, by = c('userid','trial','sampleid')) 
+
+    
+    # split in epochs of 128 samples and compute features per epoch
+    usertimedom <-  user_df %>%
+    
+          # add an epoch ID variable (on epoch = 2.56 sec)
+          mutate(epoch = sampleid %/% 128) %>% 
+
+          # extract statistical features from each epoch
+          group_by(epoch) %>%
+          summarise(
+            # keep track of user and experiment information
+            user_id = username, 
+            exp_id = expname,   
+              
+            # epoch's activity labels and start sample
+            activity = most_common_value(c("-", activity)),
+            sampleid = sampleid[1],
+              
+            # features
+            m1 = mean(X1), 
+            m2 = mean(X2),
+            sd1 = sd(X1), 
+            q1_25 = quantile(X1, .25),
+            skew1 = e1071::skewness(X1),
+              
+            # ... 
+            # ... your own features ... 
+            # ...
+              
+            n_samples = n()
+          ) 
+    
+    usertimedom 
+}
+```
+
+This is not the most efficient way to organize a function (it combines several code chunks with very different functionality in one function; different types of functionality better go in separate functions), but it suffices for our purposes.
+
+Note that the above function is merely a copy and paste of the code developed above (with minor modifications). To see how it does as promissed:
+
+```{r}
+filename = "./RawData/Train/acc_exp01_user01.txt"
+df = extractTimeDomainFeatures(filename, sample_labels) 
+print(df)
+```
+
+Now, you could make a `for` loop to iterate through all the filenames listed by the `dir()` command above, however, here's a slightly less cumbersome trick: Using `map_dfr()` that is part of the `tidyverse`.
+
+```{r}
+# demonstrate this for only the first 5 files
+filenames <- dir("./RawData/Train/", "^acc", full.names = TRUE)[1:5] 
+
+# map_dfr runs `extractTimeDomainFeatures` on all elements in 
+# filenames and binds results row wise
+myData = map_dfr(filenames, extractTimeDomainFeatures, sample_labels) 
+
+# Check the result
+print(myData)
+```
+
+Now the data are turned into a tidy format with features that can be used in any of the algorithms. 
+
+
+# 4. Model fitting
+
+
+You should maybe think about the following issues
+
+- What do you do with the unlabelled epochs? That is, the epochs that are marked with `-`?
+- For the competition submision you should only provide predictions for the epochs defined in the sample submission file
+- Should you remove the epochs that do not consist of 128 samples (i.e., `n ≠ 128` in the above data frame)?
+
+
+```{r}
+## Fitting classifier models from ISLR Chapter 4
+##
+
+# ...
+# ... Your modeling code goes here
+# ...
+
+# You can add seperate cells by click the  [ + Code ] button below
+```
+
+# 5. Submissions
+
+
+The test data can be imported in the same way as the training data, you only have to change `Train` to `Test` in the directory path:
+
+```{r}
+filenames_test = dir("./RawData/Test/", "^acc", full.names = TRUE)
+
+filenames_test
+```
+
+## Formatting the submission file
+
+To help you turning your predictions into the right format, the following code can help. Here it is executed on the training set data frame, but the same can be applied to the test set data frame.
+
+```{r}
+myData %>%
+
+    # prepend "user" and "exp" to user_id and exp_id
+    mutate(
+        user_id = paste(ifelse(user_id < 10, "user0", "user"), user_id, sep=""), 
+        exp_id = paste(ifelse(exp_id < 10, "exp0", "exp"), exp_id, sep="")
+    ) %>% 
+
+    # unit columnes user_id, exp_id and sample_id into a string 
+    # separated by "_" and store it in the new variable `Id`
+    unite(Id, user_id, exp_id, sampleid) %>%
+
+    # retain only the `Id` and  predictions
+    select(Id, Predicted = activity) %>%
+
+    # write to file
+    write_csv("test_set_predictions.csv")
+
+
+# Check the result: print first 20 lines in the submission file
+cat(readLines("test_set_predictions.csv",20), sep="\n")
+```
+
+```{r}
+
+```
+
