@@ -12,6 +12,7 @@ output: html_document
 
 ```{r}
 library(tidyverse) 
+library(e1071)
 ```
 
 ```{r}
@@ -95,23 +96,7 @@ lagged_cor <- function(x, y=x, lag=0) {
 We do not discuss frequency domain features (also known as "spectral" features) at this time, but they are described in the reading materials ([Feature extraction from Signals](https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL)). 
 -->
 
-# Putting it all together
-
 ```{r}
-# Helper functions
-most_common_value = function(x) {
-  counts = table(x, useNA='no')
-  most_frequent = which.max(counts)
-  return(names(most_frequent))
-}
-
-
-```
-- Frequency helper functions
-
-```{r}
-
-
 peak <- function(data){
   spec = spectrum(data, log='n',plot=F)
   return(spec$freq[which.max(spec$spec)])
@@ -134,10 +119,18 @@ svar = sum((spec$freq - xbar)^2 * spec$spec * df)
 return(svar)  
 }
 
-
-
 ```
 
+# Putting it all together
+
+```{r}
+# Helper functions
+most_common_value = function(x) {
+  counts = table(x, useNA='no')
+  most_frequent = which.max(counts)
+  return(names(most_frequent))
+}
+```
 
 - Extracts the time-series for the three dimensions of a sensor
 
@@ -177,26 +170,41 @@ extractTimeDomainFeatures <- function(signals){
       # user_id = userid, 
       # exp_id = trial,   
       # epoch's activity labels, start sample and no. of samples
-      activity = most_common_value(c("-", activity)),
+      activity = as.factor(most_common_value(c("-", activity))),
       sampleid = sampleid[1],
       n_samples = n(),
 
       # TODO: Include features here
+      # means
       m1 = mean(X1), 
       m2 = mean(X2),
+      m3 = mean(X3),
+      #standard deviation
       sd1 = sd(X1), 
+      sd2 = sd(X2), 
+      sd3 = sd(X3), 
       q1_25 = quantile(X1, .25),
       skew1 = e1071::skewness(X1),
-      peak_x1 = peak(X1),
-      peak_x2 = peak(X2),
-      peak_x3 = peak(X3),
-      freq_mean_x1 = freq_mean(X1),
-      freq_mean_x2 = freq_mean(X2),
-      freq_mean_x3 = freq_mean(X3),
-      freq_var_x1 = freq_var(X1),
-      freq_var_x2 = freq_var(X2),
-      freq_var_x3 = freq_var(X3)
-      
+      # skew
+      skew1 = e1071::skewness(X1),
+      skew2 = e1071::skewness(X2),
+      skew3 = e1071::skewness(X3),
+      # correlation between series
+      cor12 = cor(X1, X2, use = "pairwise"),
+      cor23 = cor(X2, X3, use = "pairwise"),
+      cor13 = cor(X1, X3, use = "pairwise"),
+      # auto-/cross-correlation X1
+      AR11 = lagged_cor(X1, lag=1),
+      AR12 = lagged_cor(X1, X2, lag=1),
+      AR13 = lagged_cor(X1, X3, lag=1),
+      # auto-/cross-correlation X2
+      AR21 = lagged_cor(X2, X1,lag=1),
+      AR22 = lagged_cor(X2, lag=1),
+      AR23 = lagged_cor(X2, X3, lag=1),
+      # auto-/cross-correlation X3
+      AR31 = lagged_cor(X3, X1, lag=1),
+      AR32 = lagged_cor(X3, X2, lag=1),
+      AR33 = lagged_cor(X3, lag=1)
     )  %>%
 rename (user_id = userid, exp_id = trial) %>%
 ungroup()
@@ -209,7 +217,7 @@ ungroup()
 
 ```{r}
 extractFreqDomainFeatures <- function(signals){
-  freq_signals <- signals
+  freq_signals <- spectrum(signals, plot = FALSE)
   # TODO: Convert time-series into frequencies
   
   freq_df <-
@@ -220,12 +228,21 @@ extractFreqDomainFeatures <- function(signals){
       user_id = userid, 
       exp_id = trial,   
       # epoch's activity labels, start sample and no. of samples
-      activity = most_common_value(c("-", activity)),
+      activity = as.factor(most_common_value(c("-", activity))),
       sampleid = sampleid[1],
       #peak_x1 = peak(X1),
       n_samples = n() #,
 
       # TODO: Include features here
+      peak_x1 = peak(X1),
+      peak_x2 = peak(X2),
+      peak_x3 = peak(X3),
+      freq_mean_x1 = freq_mean(X1),
+      freq_mean_x2 = freq_mean(X2),
+      freq_mean_x3 = freq_mean(X3),
+      freq_var_x1 = freq_var(X1),
+      freq_var_x2 = freq_var(X2),
+      freq_var_x3 = freq_var(X3),
 
     ) %>%
 rename (user_id = userid, exp_id = trial) %>%
@@ -292,7 +309,17 @@ analysis_df %>%
   table()
 ```
 
-## Model 1
+## Model 1 - Naive Bayes classifier
+```{r}
+analysis_df$activity <- as.factor(analysis_df$activity)
+model_naive_bayes <- e1071::naiveBayes(activity ~ m1_acc + m2_acc + m3_acc + sd1_acc + sd2_acc + sd3_acc + skew1_acc + skew2_acc + skew3_acc +
+                                         cor12_acc + cor23_acc + cor13_acc +
+                                AR11_acc + AR12_acc + AR13_acc + AR21_acc + AR22_acc + AR23_acc + AR11_acc + AR12_acc + AR13_acc +
+                                m1_gyr + m2_gyr + m3_gyr + sd1_gyr + sd2_gyr + sd3_gyr + skew1_gyr + skew2_gyr + skew3_gyr +
+                                cor12_gyr + cor23_gyr + cor13_gyr +
+                                AR11_gyr + AR12_gyr + AR13_gyr + AR21_gyr + AR22_gyr + AR23_gyr + AR11_gyr + AR12_gyr + AR13_gyr, data = analysis_df) 
+```
+
 ## Model 2
 ## ....
 ## Model comparison / selection
@@ -305,39 +332,36 @@ analysis_df %>%
 ```{r}
 
 testing_df <- extractFeatures("Test")
-
+testing_df$activity <- as.factor(testing_df$activity)
 # TODO: Get predictions from the selected model
+test_activities <- predict(model_naive_bayes, testing_df)
+
+testing_df <- testing_df %>% mutate(activity = test_activities) 
 
 ```
+
 
 ## Formatting the submission file
 
 To help you turning your predictions into the right format, the following code can help. Here it is executed on the training set data frame, but the same can be applied to the test set data frame.
 
 ```{r}
-# myData %>%
-# 
-#     # prepend "user" and "exp" to user_id and exp_id
-#     mutate(
-#         user_id = paste(ifelse(user_id < 10, "user0", "user"), user_id, sep=""), 
-#         exp_id = paste(ifelse(exp_id < 10, "exp0", "exp"), exp_id, sep="")
-#     ) %>% 
-# 
-#     # unit columnes user_id, exp_id and sample_id into a string 
-#     # separated by "_" and store it in the new variable `Id`
-#     unite(Id, user_id, exp_id, sampleid) %>%
-# 
-#     # retain only the `Id` and  predictions
-#     select(Id, Predicted = activity) %>%
-# 
-#     # write to file
-#     write_csv("test_set_predictions.csv")
-# 
-# 
-# # Check the result: print first 20 lines in the submission file
-# cat(readLines("test_set_predictions.csv",20), sep="\n")
-```
+output <- testing_df %>%
+  # prepend "user" and "exp" to user_id and exp_id
+  mutate(
+    user_id = paste(ifelse(user_id < 10, "user0", "user"), user_id, sep=""), 
+    exp_id = paste(ifelse(exp_id < 10, "exp0", "exp"), exp_id, sep="")
+  ) %>% 
+  # unit columnes user_id, exp_id and sample_id into a string 
+  # separated by "_" and store it in the new variable `Id`
+  unite(Id, user_id, exp_id, sampleid) %>%
+  # retain only the `Id` and  predictions
+  select(Id, Predicted = activity) %>%
+  # write to file
+  write_csv("test_set_predictions.csv")
 
+head(output)
+```
 
 # DEVELOPING
 
