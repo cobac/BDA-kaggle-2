@@ -104,7 +104,40 @@ most_common_value = function(x) {
   most_frequent = which.max(counts)
   return(names(most_frequent))
 }
+
+
 ```
+- Frequency helper functions
+
+```{r}
+
+
+peak <- function(data){
+  spec = spectrum(data, log='n',plot=F)
+  return(spec$freq[which.max(spec$spec)])
+}
+
+freq_mean <- function(data){
+  
+spec = spectrum(data, log='n', plot=FALSE)
+df   = spec$freq[2] - spec$freq[1]
+sbar = sum(spec$freq * spec$spec * df)               # 
+return(sbar)  
+}
+
+freq_var <- function(data){
+  
+spec = spectrum(data, log='n', plot=FALSE)
+df   = spec$freq[2] - spec$freq[1]
+xbar = sum(spec$freq * spec$spec * df)  
+svar = sum((spec$freq - xbar)^2 * spec$spec * df)
+return(svar)  
+}
+
+
+
+```
+
 
 - Extracts the time-series for the three dimensions of a sensor
 
@@ -153,7 +186,17 @@ extractTimeDomainFeatures <- function(signals){
       m2 = mean(X2),
       sd1 = sd(X1), 
       q1_25 = quantile(X1, .25),
-      skew1 = e1071::skewness(X1)
+      skew1 = e1071::skewness(X1),
+      peak_x1 = peak(X1),
+      peak_x2 = peak(X2),
+      peak_x3 = peak(X3),
+      freq_mean_x1 = freq_mean(X1),
+      freq_mean_x2 = freq_mean(X2),
+      freq_mean_x3 = freq_mean(X3),
+      freq_var_x1 = freq_var(X1),
+      freq_var_x2 = freq_var(X2),
+      freq_var_x3 = freq_var(X3)
+      
     )  %>%
 rename (user_id = userid, exp_id = trial) %>%
 ungroup()
@@ -166,7 +209,7 @@ ungroup()
 
 ```{r}
 extractFreqDomainFeatures <- function(signals){
-  freq_signals <- NA
+  freq_signals <- signals
   # TODO: Convert time-series into frequencies
   
   freq_df <-
@@ -179,12 +222,13 @@ extractFreqDomainFeatures <- function(signals){
       # epoch's activity labels, start sample and no. of samples
       activity = most_common_value(c("-", activity)),
       sampleid = sampleid[1],
+      #peak_x1 = peak(X1),
       n_samples = n() #,
 
       # TODO: Include features here
 
     ) %>%
-rename(user_id = userid, exp_id = trial) %>%
+rename (user_id = userid, exp_id = trial) %>%
 ungroup()
   return(freq_df)
 }
@@ -212,10 +256,10 @@ extractFeatures <- function(dataset){
                      
 
 # Calculate frequency-domain features
-# freq_df <- left_join(extractFreqDomainFeatures(data_acc),
-#                      extractFreqDomainFeatures(data_gyr),
-#                      by = c("user_id", "exp_id", "epoch"),
-#                      suffix = c("_acc", "_gyr"))
+#freq_df <- left_join(extractFreqDomainFeatures(data_acc),
+ #                     extractFreqDomainFeatures(data_gyr),
+  #                    by = c("user_id", "exp_id", "epoch","activity", "sampleid", "n_samples"),
+   #                   suffix = c("_acc", "_gyr"))
                      
 # Merge time_df and freq_df
   output_df <- time_df
