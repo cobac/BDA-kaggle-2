@@ -301,7 +301,35 @@ testing_df <- extractFeatures("Test")
 testing_df$activity <- as.factor(testing_df$activity)
 # TODO: Get predictions from the selected model
 test_activities <- predict(fit.mod1, testing_df)
+
+testing_df <- testing_df %>% mutate(activity = test_activities) 
+
 ```
+
+```{r}
+testing_df %>%
+
+    # prepend "user" and "exp" to user_id and exp_id
+    mutate(
+        user_id = paste(ifelse(user_id < 10, "user0", "user"), user_id, sep=""), 
+        exp_id = paste(ifelse(exp_id < 10, "exp0", "exp"), exp_id, sep="")
+    ) %>% 
+
+    # unit columnes user_id, exp_id and sample_id into a string 
+    # separated by "_" and store it in the new variable `Id`
+    unite(Id, user_id, exp_id, sampleid) %>%
+
+    # retain only the `Id` and  predictions
+    select(Id, Predicted = activity) %>%
+
+    # write to file
+    write_csv("test_set_predictions.csv")
+
+
+# Check the result: print first 20 lines in the submission file
+cat(readLines("test_set_predictions.csv",20), sep="\n")
+```
+
 
 ## Formatting the submission file
 
