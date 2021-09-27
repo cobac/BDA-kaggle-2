@@ -76,7 +76,6 @@ select(-start, -end)
 
 ## Time-domain features
 
-
 <!---
 Slowly changing signals have high autocorellations, while fast changing signals have low or even negative autocorrelations.
 https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL
@@ -95,30 +94,31 @@ lagged_cor <- function(x, y=x, lag=0) {
 <!---
 We do not discuss frequency domain features (also known as "spectral" features) at this time, but they are described in the reading materials ([Feature extraction from Signals](https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL)). 
 -->
+- These function take two inputs:
+  - A vector with the different frequencies
+  - A vector with the spectral densities
 
 ```{r}
-peak <- function(data){
-  spec = spectrum(data, log='n',plot=F)
-  return(spec$freq[which.max(spec$spec)])
+peak <- function(freq, spec){
+  return(freq[which.max(spec)])
 }
+```
 
-freq_mean <- function(data){
-  
-spec = spectrum(data, log='n', plot=FALSE)
-df   = spec$freq[2] - spec$freq[1]
-sbar = sum(spec$freq * spec$spec * df)               # 
-return(sbar)  
+```{r}
+freq_mean <- function(freq, spec){
+  df   = freq[2] - freq[1]
+  sbar = sum(freq * spec * df)               # 
+  return(sbar)  
 }
+```
 
-freq_var <- function(data){
-  
-spec = spectrum(data, log='n', plot=FALSE)
-df   = spec$freq[2] - spec$freq[1]
-xbar = sum(spec$freq * spec$spec * df)  
-svar = sum((spec$freq - xbar)^2 * spec$spec * df)
-return(svar)  
+```{r}
+freq_var <- function(freq, spec){
+  df   = freq[2] - freq[1]
+  xbar = sum(freq * spec * df)  
+  svar = sum((freq - xbar)^2 * spec * df)
+  return(svar)  
 }
-
 ```
 
 # Putting it all together
@@ -128,7 +128,11 @@ return(svar)
 most_common_value = function(x) {
   counts = table(x, useNA='no')
   most_frequent = which.max(counts)
+  if (length(most_frequent) == 0) {
+    return(NA)
+  }else {
   return(names(most_frequent))
+  }
 }
 ```
 
@@ -136,7 +140,6 @@ most_common_value = function(x) {
 
 ```{r}
 extractSignals <- function(filename, sample_labels) {
-    
   # extract user and experimental run ID's from file name
   username = gsub(".+user(\\d+).+", "\\1", filename) %>% as.numeric()
   expname  = gsub( ".+exp(\\d+).+", "\\1", filename) %>% as.numeric()
@@ -144,7 +147,6 @@ extractSignals <- function(filename, sample_labels) {
   # import the sensor signals from the file
   user <- read_delim(filename, " ", col_names = FALSE, progress = TRUE, 
                      col_types = "ddd")
-  
   # merge signals with labels 
   user_df <- 
     data.frame(userid = username, trial = expname, user) %>%
@@ -166,22 +168,18 @@ extractTimeDomainFeatures <- function(signals){
     signals %>% 
     group_by(userid, trial, epoch) %>%
     summarise(
-      # keep track of user and experiment information
-      # user_id = userid, 
-      # exp_id = trial,   
-      # epoch's activity labels, start sample and no. of samples
+      # Epoch's, activity labels, initial sample & no. of samples
       activity = as.factor(most_common_value(c("-", activity))),
       sampleid = sampleid[1],
       n_samples = n(),
-
-      # TODO: Include features here
+      # Features
       # means
       m1 = mean(X1), 
       m2 = mean(X2),
       m3 = mean(X3),
-      pw1 = mean(X1^2)
-      pw2 = mean(X2^2)
-      pw3 = mean(X3^2)
+      pw1 = mean(X1^2),
+      pw2 = mean(X2^2),
+      pw3 = mean(X3^2),
       #standard deviation
       sd1 = sd(X1), 
       sd2 = sd(X2), 
@@ -209,7 +207,7 @@ extractTimeDomainFeatures <- function(signals){
       AR32 = lagged_cor(X3, X2, lag=1),
       AR33 = lagged_cor(X3, lag=1)
     )  %>%
-rename (user_id = userid, exp_id = trial) %>%
+rename(user_id = userid, exp_id = trial) %>%
 ungroup()
 
   return(time_df)
@@ -219,37 +217,48 @@ ungroup()
 - Converts the time-series of a sensor intro a spectral band and extracts frequency-related features
 
 ```{r}
+
+# Helper function that tansforms a time-series df into a fft df
+spectralDF <- function(df){
+  spectral_1 <- spectrum(df[, 1], plot = FALSE)
+  spectral_2 <- spectrum(df[, 2], plot = FALSE)
+  spectral_3 <- spectrum(df[, 3], plot = FALSE)
+  out <- tibble(freq = spectral_1$freq,
+                X1 = spectral_1$spec,
+                X2 = spectral_2$spec,
+                X3 = spectral_3$spec)
+  return(out)
+}
+
 extractFreqDomainFeatures <- function(signals){
-  freq_signals <- spectrum(signals, plot = FALSE)
-  # TODO: Convert time-series into frequencies
+  freq_signals <- signals %>% 
+    select(-c(segment, sampleid)) %>%
+    group_by(userid, trial, epoch) %>%
+    mutate(activity = most_common_value(activity)) %>% 
+    ungroup()    %>%
+    nest(ts = c(X1, X2, X3)) %>% 
+    mutate(ts = map(ts, spectralDF))  %>%
+    unnest(cols = c(ts))
   
-  freq_df <-
-    freq_signals %>% 
+  freq_df <- freq_signals %>% 
     group_by(userid, trial, epoch) %>%
     summarise(
-      # keep track of user and experiment information
-      user_id = userid, 
-      exp_id = trial,   
-      # epoch's activity labels, start sample and no. of samples
+      # Lables
       activity = as.factor(most_common_value(c("-", activity))),
-      sampleid = sampleid[1],
-      #peak_x1 = peak(X1),
-      n_samples = n() #,
-
-      # TODO: Include features here
-      peak_x1 = peak(X1),
-      peak_x2 = peak(X2),
-      peak_x3 = peak(X3),
-      freq_mean_x1 = freq_mean(X1),
-      freq_mean_x2 = freq_mean(X2),
-      freq_mean_x3 = freq_mean(X3),
-      freq_var_x1 = freq_var(X1),
-      freq_var_x2 = freq_var(X2),
-      freq_var_x3 = freq_var(X3),
-
+      # Features
+      peak_x1 = peak(freq, X1),
+      peak_x2 = peak(freq, X2),
+      peak_x3 = peak(freq, X3),
+      freq_mean_x1 = freq_mean(freq, X1),
+      freq_mean_x2 = freq_mean(freq, X2),
+      freq_mean_x3 = freq_mean(freq, X3),
+      freq_var_x1 = freq_var(freq, X1),
+      freq_var_x2 = freq_var(freq, X2),
+      freq_var_x3 = freq_var(freq, X3)
     ) %>%
-rename (user_id = userid, exp_id = trial) %>%
-ungroup()
+    ungroup() %>% 
+    rename(user_id = userid, exp_id = trial)
+
   return(freq_df)
 }
 ```
@@ -267,30 +276,29 @@ extractFeatures <- function(dataset){
   data_gyr <- map_dfr(filenames_gyr, extractSignals, sample_labels) 
 
   # Calculate time-domain features
-
   time_df <- left_join(extractTimeDomainFeatures(data_acc),
                      extractTimeDomainFeatures(data_gyr),
                      by = c("user_id", "exp_id", "epoch",
                             "activity", "sampleid", "n_samples"),
                      suffix = c("_acc", "_gyr"))
-                     
 
 # Calculate frequency-domain features
-#freq_df <- left_join(extractFreqDomainFeatures(data_acc),
- #                     extractFreqDomainFeatures(data_gyr),
-  #                    by = c("user_id", "exp_id", "epoch","activity", "sampleid", "n_samples"),
-   #                   suffix = c("_acc", "_gyr"))
+freq_df <- left_join(extractFreqDomainFeatures(data_acc),
+                                         extractFreqDomainFeatures(data_gyr),
+                                         by = c("user_id", "exp_id", "epoch","activity"),
+                     suffix = c("_acc", "_gyr"))
                      
-# Merge time_df and freq_df
-  output_df <- time_df
+  # Merge time_df and freq_df
+  output_df <- left_join(time_df, freq_df,
+                         by = c("user_id", "exp_id", "epoch", "activity"))
 
   return(output_df)
 }
-
-analysis_df <- extractFeatures("Train")
-
 ```
 
+```{r}
+analysis_df <- extractFeatures("Train")
+```
 # Model fitting
 
 <!----
