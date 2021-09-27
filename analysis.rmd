@@ -13,6 +13,8 @@ output: html_document
 ```{r}
 library(tidyverse) 
 library(e1071)
+library(MASS)
+library(class)
 ```
 
 ```{r}
@@ -314,29 +316,50 @@ You should maybe think about the following issues
 ```{r}
 analysis_df <- analysis_df %>%
   filter(activity != "-")
+# Necessary to remove the "-" activity factor level
+analysis_df$activity <- droplevels(analysis_df$activity)
 
 analysis_df %>% 
   select(n_samples) %>%
   table()
+
 ```
+
+
+```{r}
+analysis_df <- analysis_df %>%
+  select(-c(user_id, exp_id, epoch, sampleid, n_samples))
+
+# Standardize numeric variables
+analysis_df <- analysis_df %>%
+  mutate_if(is.numeric, scale)
+
+```
+
+- TODO: highly correlated variables, variables without variance
 
 ## Model 1 - Naive Bayes classifier
+
 ```{r}
-analysis_df$activity <- as.factor(analysis_df$activity)
-model_naive_bayes <- e1071::naiveBayes(activity ~ m1_acc + m2_acc + m3_acc + sd1_acc + sd2_acc + sd3_acc + skew1_acc + skew2_acc + skew3_acc +
-                                         cor12_acc + cor23_acc + cor13_acc +
-                                AR11_acc + AR12_acc + AR13_acc + AR21_acc + AR22_acc + AR23_acc + AR11_acc + AR12_acc + AR13_acc +
-                                m1_gyr + m2_gyr + m3_gyr + sd1_gyr + sd2_gyr + sd3_gyr + skew1_gyr + skew2_gyr + skew3_gyr +
-                                cor12_gyr + cor23_gyr + cor13_gyr +
-                                AR11_gyr + AR12_gyr + AR13_gyr + AR21_gyr + AR22_gyr + AR23_gyr + AR11_gyr + AR12_gyr + AR13_gyr, data = analysis_df) 
+model_naive_bayes <- e1071::naiveBayes(activity ~ ., data = analysis_df) 
 ```
 
-## Model 2
-## ....
+## Model 2 - Linear discriminant analysis
+
+```{r}
+model_lca <- MASS::lda(activity ~ ., data = analysis_df) 
+```
+
+## Model 4 - Something knn
+
+```{r}
+
+
+```
+
 ## Model comparison / selection
 
-- Preliminary feature selection with logistics regression (?)
-  - Some discriminant might be untractable / too sensitive with too many variables?
+- Then CV to compare models?
 
 # Submissions
 
