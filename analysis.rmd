@@ -179,6 +179,9 @@ extractTimeDomainFeatures <- function(signals){
       m1 = mean(X1), 
       m2 = mean(X2),
       m3 = mean(X3),
+      pw1 = mean(X1^2)
+      pw2 = mean(X2^2)
+      pw3 = mean(X3^2)
       #standard deviation
       sd1 = sd(X1), 
       sd2 = sd(X2), 
