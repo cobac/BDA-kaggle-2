@@ -238,8 +238,6 @@ extractTimeDomainFeatures <- function(signals){
       sd1 = sd(X1), 
       sd2 = sd(X2), 
       sd3 = sd(X3), 
-      q1_25 = quantile(X1, .25),
-      skew1 = e1071::skewness(X1),
       # skew
       skew1 = e1071::skewness(X1),
       skew2 = e1071::skewness(X2),
