@@ -73,12 +73,38 @@ dplyr::select(-c(start, end))
 
 # Features
 
+
 ## Time-domain features
 
-<!---
-Slowly changing signals have high autocorellations, while fast changing signals have low or even negative autocorrelations.
-https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL
--->
+- We explore the histograms of the signals of a sample user
+
+```{r}
+user1_df_acc <- extractSignals("./RawData/Train/acc_exp01_user01.txt", sample_labels)
+user1_df_gyr <- extractSignals("./RawData/Train/gyro_exp01_user01.txt", sample_labels)
+```
+
+```{r}
+user1_df_acc %>%
+  ggplot(aes(X1)) + 
+  geom_histogram(bins=40, fill=1, alpha=0.5) + 
+  geom_histogram(aes(X2), bins=40, fill = 2, alpha=0.5) + 
+  geom_histogram(aes(X3), bins=40, fill = 4, alpha=0.5) +
+  facet_wrap(~activity, scales = "free_y")
+```
+
+```{r}
+user1_df_gyr %>%
+  ggplot(aes(X1)) + 
+  geom_histogram(bins=40, fill=1, alpha=0.5) + 
+  geom_histogram(aes(X2), bins=40, fill = 2, alpha=0.5) + 
+  geom_histogram(aes(X3), bins=40, fill = 4, alpha=0.5) +
+  facet_wrap(~activity, scales = "free_y")
+```
+
+- We see that histograms of different activities have different means, spread and shape.
+- To capture these features we will use the means, standard deviations, skewness and kurtosis.
+
+- Moreover, signals with different patterns have different autocorrelations. Slow signals tend to have high autocorrelations, while fast changing signals can have different values depending on their frequency and the sampling frequency.
 
 ```{r}
 lagged_cor <- function(x, y=x, lag=0) {
@@ -90,12 +116,27 @@ lagged_cor <- function(x, y=x, lag=0) {
 
 ## Frequency domain features
 
-<!---
-We do not discuss frequency domain features (also known as "spectral" features) at this time, but they are described in the reading materials ([Feature extraction from Signals](https://paper.dropbox.com/doc/Feature-extraction-from-Signals--A62tmtXDMS34X292NP0fKphQAQ-qCp5uvj47gmyuw5nmB8lL)). 
--->
+```{r}
+# Helper function that tansforms a time-series df into a fft df
+spectralDF <- function(df){
+  spectral_1 <- spectrum(df[, 1], plot = FALSE)
+  spectral_2 <- spectrum(df[, 2], plot = FALSE)
+  spectral_3 <- spectrum(df[, 3], plot = FALSE)
+  out <- tibble(freq = spectral_1$freq,
+                X1 = spectral_1$spec,
+                X2 = spectral_2$spec,
+                X3 = spectral_3$spec)
+  return(out)
+}
+```
+
+- TODO: Exploratory plots of frequency bands per activity
+
 - These function take two inputs:
-  - A vector with the different frequencies
-  - A vector with the spectral densities
+- A vector with the different frequencies
+- A vector with the spectral densities
+  
+- Our first feature is the frequency with the highest density, the average frequency and the frequency variance. These features are characteristic of different patterns.
 
 ```{r}
 peak <- function(freq, spec){
@@ -123,7 +164,7 @@ freq_var <- function(freq, spec){
 # Putting it all together
 
 ```{r}
-# Helper functions
+# Helper function to select the mode of a vector, taking into account NA values
 most_common_value = function(x) {
   counts = table(x, useNA='no')
   most_frequent = which.max(counts)
@@ -135,7 +176,7 @@ most_common_value = function(x) {
 }
 ```
 
-- Extracts the time-series for the three dimensions of a sensor
+- Extract the time-series for the three dimensions of a sensor
 
 ```{r}
 extractSignals <- function(filename, sample_labels) {
@@ -189,6 +230,9 @@ extractTimeDomainFeatures <- function(signals){
       skew1 = e1071::skewness(X1),
       skew2 = e1071::skewness(X2),
       skew3 = e1071::skewness(X3),
+      kurt1 = kurtosis(X1),
+      kurt2 = kurtosis(X2),
+      kurt3 = kurtosis(X3),
       # correlation between series
       cor12 = cor(X1, X2, use = "pairwise"),
       cor23 = cor(X2, X3, use = "pairwise"),
@@ -216,19 +260,6 @@ ungroup()
 - Converts the time-series of a sensor intro a spectral band and extracts frequency-related features
 
 ```{r}
-
-# Helper function that tansforms a time-series df into a fft df
-spectralDF <- function(df){
-  spectral_1 <- spectrum(df[, 1], plot = FALSE)
-  spectral_2 <- spectrum(df[, 2], plot = FALSE)
-  spectral_3 <- spectrum(df[, 3], plot = FALSE)
-  out <- tibble(freq = spectral_1$freq,
-                X1 = spectral_1$spec,
-                X2 = spectral_2$spec,
-                X3 = spectral_3$spec)
-  return(out)
-}
-
 extractFreqDomainFeatures <- function(signals){
   freq_signals <- signals %>% 
     dplyr::select(-c(segment, sampleid)) %>%
@@ -302,15 +333,9 @@ analysis_df <- extractFeatures("Train")
 # Model fitting
 ## Setup
 
-<!----
-You should maybe think about the following issues
-
-- What do you do with the unlabelled epochs? That is, the epochs that are marked with `-`?
-- For the competition submision you should only provide predictions for the epochs defined in the sample submission file
-- Should you remove the epochs that do not consist of 128 samples (i.e., `n ≠ 128` in the above data frame)?
---->
-
-- No more epoch with different number of samples after removing the ones without activity
+- Some epochs don't have assigned an activity, and there are some epoch that are not 128 samples long.
+- However, we can see that both of these groups are the same.
+- After removing all epochs without an activity assigned, all epochs are 128 samples long.
 
 ```{r}
 analysis_df <- analysis_df %>%
@@ -321,7 +346,6 @@ analysis_df$activity <- droplevels(analysis_df$activity)
 analysis_df %>% 
   dplyr::select(n_samples) %>%
   table()
-
 ```
 
 
@@ -333,10 +357,9 @@ analysis_df <- analysis_df %>%
 # Standardize numeric variables
 analysis_df <- analysis_df %>%
   mutate_if(is.numeric, ~c(scale(.)))
-
 ```
 
-- No variables without variance
+- There are no variables without variance
 
 ```{r}
 zero_var_is <- caret::nearZeroVar(analysis_df)
@@ -367,9 +390,14 @@ model_lda <- MASS::lda(activity ~ ., data = analysis_df)
 model_naive_bayes <- e1071::naiveBayes(activity ~ ., data = analysis_df) 
 ```
 
-## Model comparison / selection
+## Why not other models
 
-- K-fold cross-validation with k = 10
+- Since we have a substantial number of variables, we think K-nearest neighbours algorithms will not perform adequately.
+- Similarly, a quadratic discriminant analysis classifier will need to fit a very large number of parameters. QDA might potentially be a good model for this scenario if we performed some sort of feature selection first.
+
+## Model selection
+
+- K-fold cross-validation with k = 10 to select the best model
 
 ```{r}
 trcntr <- trainControl('cv', number = 10)
@@ -407,8 +435,6 @@ testing_df <- testing_df %>%
 
 ## Formatting the submission file
 
-To help you turning your predictions into the right format, the following code can help. Here it is executed on the training set data frame, but the same can be applied to the test set data frame.
-
 ```{r}
 output <- testing_df %>%
   # prepend "user" and "exp" to user_id and exp_id
@@ -429,23 +455,3 @@ head(output)
 
 # Division of labour
 
-# DEVELOPING
-
-- We can use this data_frame to develop features
-
-```{r}
-develop_df <- extractSignals("./RawData/Train/acc_exp01_user01.txt", sample_labels)
-
-```
-
-```{r}
-develop_df %>%
-  ggplot(aes(X1)) + 
-  geom_histogram(bins=40, fill=1, alpha=0.5) + 
-  geom_histogram(aes(X2), bins=40, fill = 2, alpha=0.5) + 
-  geom_histogram(aes(X3), bins=40, fill = 4, alpha=0.5) +
-  facet_wrap(~activity, scales = "free_y")
-```
-
-<!---The histograms are quite distinct, and we can compute all kinds of statistics for them that characterize their shapes (e.g., mean, sd, skewness, inter-quartile ranges, etc.). Hence, useful features may be found amongst these statistical descriptive measures.
--->
