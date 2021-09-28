@@ -479,3 +479,10 @@ head(output)
 ```
 
 # Division of labour
+
+- Notebook Setup: Coba
+- Feature extraction
+    - Time-domain: Leonhard
+    - Spectral features: Fridtjof
+- Model selection: Coba, Leonhard
+- Cross-validation: Coba, Fridtjof
