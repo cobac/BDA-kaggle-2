@@ -14,7 +14,7 @@ output: html_document
 library(tidyverse) 
 library(e1071)
 library(MASS)
-library(class)
+library(caret)
 ```
 
 ```{r}
@@ -31,7 +31,7 @@ if (RUN_IN_KAGGLE) {
 
 ```{r}
 act_labels = read_table2("activity_labels.txt", col_names = FALSE)
-act_labels = act_labels %>% select(X1,X2)
+act_labels = act_labels %>% dplyr::select(X1,X2)
 act_labels 
 ```
 
@@ -62,15 +62,12 @@ print(sample_labels_nested, n=6)
 ```{r}
 sample_labels <- 
   sample_labels_nested %>% 
-
 # Rows are segments, we need to keep track of different segements
 mutate(segment = row_number() ) %>% 
-
 # Expand the data frame to one sample per row
 unnest(cols = c(sampleid)) %>% 
-
 # Remove columns we don't need anymore
-select(-start, -end) 
+dplyr::select(-c(start, end)) 
 
 ```
 
@@ -234,7 +231,7 @@ spectralDF <- function(df){
 
 extractFreqDomainFeatures <- function(signals){
   freq_signals <- signals %>% 
-    select(-c(segment, sampleid)) %>%
+    dplyr::select(-c(segment, sampleid)) %>%
     group_by(userid, trial, epoch) %>%
     mutate(activity = most_common_value(activity)) %>% 
     ungroup()    %>%
@@ -301,7 +298,9 @@ freq_df <- left_join(extractFreqDomainFeatures(data_acc),
 ```{r}
 analysis_df <- extractFeatures("Train")
 ```
+
 # Model fitting
+## Setup
 
 <!----
 You should maybe think about the following issues
@@ -320,58 +319,89 @@ analysis_df <- analysis_df %>%
 analysis_df$activity <- droplevels(analysis_df$activity)
 
 analysis_df %>% 
-  select(n_samples) %>%
+  dplyr::select(n_samples) %>%
   table()
 
 ```
 
 
 ```{r}
+# Remove non-feature variables
 analysis_df <- analysis_df %>%
-  select(-c(user_id, exp_id, epoch, sampleid, n_samples))
+  dplyr::select(-c(user_id, exp_id, epoch, sampleid, n_samples))
 
 # Standardize numeric variables
 analysis_df <- analysis_df %>%
-  mutate_if(is.numeric, scale)
+  mutate_if(is.numeric, ~c(scale(.)))
 
 ```
 
-- TODO: highly correlated variables, variables without variance
+- No variables without variance
 
-## Model 1 - Naive Bayes classifier
+```{r}
+zero_var_is <- caret::nearZeroVar(analysis_df)
+head(zero_var_is)
+```
+
+- Delete redundant variables because they are highly correlated with others
+
+```{r}
+cor_var_is <- caret::findCorrelation(cor(analysis_df %>%
+                                           dplyr::select(-activity))) + 1
+print(cor_var_is)
+```
+
+```{r}
+analysis_df <- analysis_df[, -cor_var_is]
+```
+
+## Model 1 - Linear discriminant analysis
+
+```{r}
+model_lda <- MASS::lda(activity ~ ., data = analysis_df) 
+```
+
+## Model 2 - Naive Bayes classifier
 
 ```{r}
 model_naive_bayes <- e1071::naiveBayes(activity ~ ., data = analysis_df) 
 ```
 
-## Model 2 - Linear discriminant analysis
-
-```{r}
-model_lca <- MASS::lda(activity ~ ., data = analysis_df) 
-```
-
-## Model 4 - Something knn
-
-```{r}
-
-
-```
-
 ## Model comparison / selection
 
-- Then CV to compare models?
+- K-fold cross-validation with k = 10
+
+```{r}
+trcntr <- trainControl('cv', number = 10)
+```
+
+```{r}
+cv_lda <- caret::train(activity ~ ., data = analysis_df,
+                       method="lda", trControl = trcntr)
+cv_lda 
+```
+
+```{r}
+cv_naive_bayes <- caret::train(activity ~ ., data = analysis_df,
+                               method="naive_bayes", trControl = trcntr)
+```
+
+- The linear discriminant classifier seems to perform better.
 
 # Submissions
 
 ```{r}
-
 testing_df <- extractFeatures("Test")
 testing_df$activity <- as.factor(testing_df$activity)
-# TODO: Get predictions from the selected model
-test_activities <- predict(model_naive_bayes, testing_df)
+# Standardize features
+testing_df <- testing_df %>% 
+  # Only standardize features
+  mutate_at(7:ncol(testing_df) , ~c(scale(.)))
 
-testing_df <- testing_df %>% mutate(activity = test_activities) 
+test_activities <- predict(model_lda, testing_df)$class
 
+testing_df <- testing_df %>%
+  mutate(activity = test_activities) 
 ```
 
 
@@ -390,12 +420,14 @@ output <- testing_df %>%
   # separated by "_" and store it in the new variable `Id`
   unite(Id, user_id, exp_id, sampleid) %>%
   # retain only the `Id` and  predictions
-  select(Id, Predicted = activity) %>%
+  dplyr::select(Id, Predicted = activity) %>%
   # write to file
   write_csv("test_set_predictions.csv")
 
 head(output)
 ```
+
+# Division of labour
 
 # DEVELOPING
 
