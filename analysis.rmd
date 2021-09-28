@@ -72,6 +72,30 @@ dplyr::select(-c(start, end))
 
 # Features
 
+- Helper function to extract the time-series for the three dimensions of a sensor.
+
+```{r}
+extractSignals <- function(filename, sample_labels) {
+  # extract user and experimental run ID's from file name
+  username = gsub(".+user(\\d+).+", "\\1", filename) %>% as.numeric()
+  expname  = gsub( ".+exp(\\d+).+", "\\1", filename) %>% as.numeric()
+  
+  # import the sensor signals from the file
+  user <- read_delim(filename, " ", col_names = FALSE, progress = TRUE, 
+                     col_types = "ddd")
+  # merge signals with labels 
+  user_df <- 
+    data.frame(userid = username, trial = expname, user) %>%
+    mutate(sampleid = 0:(nrow(user)-1) ) %>%
+    left_join(sample_labels, by = c('userid','trial','sampleid'))  %>%
+    # split in epochs of 128 samples 
+    # one epoch = 2.56 sec
+    mutate(epoch = sampleid %/% 128)
+  
+  return(user_df)
+}
+```
+
 ## Time-domain features
 
 - We explore the histograms of the signals of a sample user.
@@ -190,29 +214,6 @@ most_common_value = function(x) {
 }
 ```
 
-- Extract the time-series for the three dimensions of a sensor.
-
-```{r}
-extractSignals <- function(filename, sample_labels) {
-  # extract user and experimental run ID's from file name
-  username = gsub(".+user(\\d+).+", "\\1", filename) %>% as.numeric()
-  expname  = gsub( ".+exp(\\d+).+", "\\1", filename) %>% as.numeric()
-  
-  # import the sensor signals from the file
-  user <- read_delim(filename, " ", col_names = FALSE, progress = TRUE, 
-                     col_types = "ddd")
-  # merge signals with labels 
-  user_df <- 
-    data.frame(userid = username, trial = expname, user) %>%
-    mutate(sampleid = 0:(nrow(user)-1) ) %>%
-    left_join(sample_labels, by = c('userid','trial','sampleid'))  %>%
-    # split in epochs of 128 samples 
-    # one epoch = 2.56 sec
-    mutate(epoch = sampleid %/% 128)
-  
-  return(user_df)
-}
-```
 
 - Extract time-domain features from the time-series of a sensor.
 
