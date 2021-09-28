@@ -433,6 +433,7 @@ cv_naive_bayes
 
 - The linear discriminant classifier seems to perform better.
 - Our final model is a linear discriminant model, but we select features step-wise using 10-fold CV accuracy as our selection criteria.
+  - However, this model is only selecting three features and perfroms worse than the plain LDA, we will have to adjust the setep-wise process.
 
 ```{r}
  model_lda_stepped <- train(activity ~ ., data = analysis_df,
