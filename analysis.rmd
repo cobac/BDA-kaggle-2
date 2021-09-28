@@ -26,7 +26,6 @@ if (RUN_IN_KAGGLE) {
 } 
 ```
 
-
 ## Importing labels
 
 ```{r}
@@ -73,7 +72,6 @@ dplyr::select(-c(start, end))
 
 # Features
 
-
 ## Time-domain features
 
 - We explore the histograms of the signals of a sample user
@@ -114,7 +112,7 @@ lagged_cor <- function(x, y=x, lag=0) {
 }
 ```
 
-- We also include the entropy of the time series
+- We also include the entropy of the time series.
 
 ```{r}
 entropy  <- function(x, nbreaks = nclass.Sturges(x)) {
@@ -128,7 +126,7 @@ entropy  <- function(x, nbreaks = nclass.Sturges(x)) {
 
 ## Frequency domain features
 
-- Helper function that tansforms a time-series df into one of spectral densities
+- Helper function that transforms a time-series df into one of spectral densities.
 
 ```{r}
 spectralDF <- function(df){
@@ -175,6 +173,7 @@ freq_var <- function(freq, spec){
 ```
 
 - TODO: Features related to the energy of different spectral bands
+
 # Putting it all together
 
 ```{r}
@@ -459,7 +458,6 @@ testing_df <- testing_df %>%
   mutate(activity = test_activities) 
 ```
 
-
 ## Formatting the submission file
 
 ```{r}
@@ -481,4 +479,3 @@ head(output)
 ```
 
 # Division of labour
-
