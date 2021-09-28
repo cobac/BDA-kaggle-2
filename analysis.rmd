@@ -242,9 +242,9 @@ extractTimeDomainFeatures <- function(signals){
       skew1 = e1071::skewness(X1),
       skew2 = e1071::skewness(X2),
       skew3 = e1071::skewness(X3),
-      kurt1 = kurtosis(X1),
-      kurt2 = kurtosis(X2),
-      kurt3 = kurtosis(X3),
+      kurt1 = e1071::kurtosis(X1),
+      kurt2 = e1071::kurtosis(X2),
+      kurt3 = e1071::kurtosis(X3),
       # correlation between series
       cor12 = cor(X1, X2, use = "pairwise"),
       cor23 = cor(X2, X3, use = "pairwise"),
