@@ -114,10 +114,23 @@ lagged_cor <- function(x, y=x, lag=0) {
 }
 ```
 
-## Frequency domain features
+- We also include the entropy of the time series
 
 ```{r}
-# Helper function that tansforms a time-series df into a fft df
+entropy  <- function(x, nbreaks = nclass.Sturges(x)) {
+  r = range(x)
+  x_binned = findInterval(x, seq(r[1], r[2], len= nbreaks))
+  h = tabulate(x_binned, nbins = nbreaks) # fast histogram
+  p = h/sum(h)
+  -sum(p[p>0] * log(p[p>0]))
+}
+```
+
+## Frequency domain features
+
+- Helper function that tansforms a time-series df into one of spectral densities
+
+```{r}
 spectralDF <- function(df){
   spectral_1 <- spectrum(df[, 1], plot = FALSE)
   spectral_2 <- spectrum(df[, 2], plot = FALSE)
@@ -217,9 +230,9 @@ extractTimeDomainFeatures <- function(signals){
       m1 = mean(X1), 
       m2 = mean(X2),
       m3 = mean(X3),
-      pw1 = mean(X1^2),
-      pw2 = mean(X2^2),
-      pw3 = mean(X3^2),
+      energy1 = mean(X1^2),
+      energy2 = mean(X2^2),
+      energy3 = mean(X3^2),
       #standard deviation
       sd1 = sd(X1), 
       sd2 = sd(X2), 
@@ -248,7 +261,11 @@ extractTimeDomainFeatures <- function(signals){
       # auto-/cross-correlation X3
       AR31 = lagged_cor(X3, X1, lag=1),
       AR32 = lagged_cor(X3, X2, lag=1),
-      AR33 = lagged_cor(X3, lag=1)
+      AR33 = lagged_cor(X3, lag=1),
+      # Entropy
+      entropy1 = entropy(X1),
+      entropy2 = entropy(X2),
+      entropy3 = entropy(X3)
     )  %>%
 rename(user_id = userid, exp_id = trial) %>%
 ungroup()
