@@ -1,3 +1,6 @@
 *.html
 *.pdf
 /test_set_predictions.csv
+.Rproj.user
+BDA-kaggle-2.Rproj
+.Rhistory
