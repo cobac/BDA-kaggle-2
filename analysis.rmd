@@ -148,6 +148,19 @@ entropy  <- function(x, nbreaks = nclass.Sturges(x)) {
 }
 ```
 
+- Helper function to select the mode of a vector, taking into account NA values.
+
+```{r}
+most_common_value = function(x) {
+  counts = table(x, useNA='no')
+  most_frequent = which.max(counts)
+  if (length(most_frequent) == 0) {
+    return(NA)
+  }else {
+  return(names(most_frequent))
+  }
+}
+```
 ## Frequency domain features
 
 
@@ -230,17 +243,12 @@ freq_var <- function(freq, spec){
 }
 ```
 
-```{r}
-freq_bands <- function(freq,spec,len=30){
-  bands = seq(0, max(freq), len=30)
-}
-```
 
 - TODO: Features related to the energy of different spectral bands.
 ```{r}
 createBandSummary <- function(freq,X1,prefix){
   
-  bands = seq(0, max(freq), len=30)
+  bands = seq(0, max(freq), len=5)
   
   specs <- data.frame(freq=freq,spec=X1,prefix)
   bands_df <- specs %>% 
@@ -254,19 +262,7 @@ createBandSummary <- function(freq,X1,prefix){
 
 # Putting it all together
 
-- Helper function to select the mode of a vector, taking into account NA values.
 
-```{r}
-most_common_value = function(x) {
-  counts = table(x, useNA='no')
-  most_frequent = which.max(counts)
-  if (length(most_frequent) == 0) {
-    return(NA)
-  }else {
-  return(names(most_frequent))
-  }
-}
-```
 
 
 - Extract time-domain features from the time-series of a sensor.
@@ -466,12 +462,14 @@ model_naive_bayes <- e1071::naiveBayes(activity ~ ., data = analysis_df)
 - K-fold cross-validation with k = 10 to select the best model.
 
 ```{r}
-trcntr <- trainControl('cv', number = 2)
+trcntr <- trainControl('cv', number = 10)
 ```
 
 ```{r}
-cv_lda <- caret::train(activity ~ ., data = analysis_df,
-                       method="lda", trControl = trcntr)
+# without bands
+
+cv_lda <- caret::train(activity ~ ., data = analysis_df %>% dplyr::select(-contains("band")),
+                       method="lda", trControl = trcntr,na.action=na.exclude)
 cv_lda 
 ```
 
@@ -495,10 +493,105 @@ cv_naive_bayes
 Penalized L1 LDA
 
 ```{r}
-l1_lda <- caret::train(x=as.data.frame(analysis_df[-1]),y=analysis_df$activity,method ="PenalizedLDA")
+l1_lda <- caret::train(x=as.data.frame(analysis_df[-1]),y=analysis_df$activity,method ="PenalizedLDA",na.action=na.exclude)
 
 l1_lda$results$Accuracy
 ```
+
+Model with power features
+```{r}
+cv_lda_band <- caret::train(activity ~ ., data = analysis_df,
+                       method="lda", trControl = trcntr,na.action=na.exclude)
+cv_lda $results$Accuracy
+cv_lda_band$results$Accuracy
+
+```
+## Visual Comparison of Accuracy
+
+```{r}
+set.seed(1)
+inTraining <- createDataPartition(analysis_df$activity, p = .8, list = FALSE)
+training <- analysis_df[ inTraining,]
+testing  <- analysis_df[-inTraining,]
+
+trcntr <- trainControl('cv', number = 10)
+
+# Model without bands
+
+cv_lda_no_bands <- train(x=training %>% dplyr::select(-activity,-contains("band")) %>% as.data.frame(),
+                         y= training$activity,                      
+                          method="lda", preProcess="knnImpute",
+                         trControl = trcntr)
+
+cv_lda_no_bands
+
+pred_lda_no_bands <- predict(cv_lda_no_bands,testing)
+res_lda_no_bands <-confusionMatrix(data = pred_lda_no_bands, reference = testing$activity)
+res_lda_no_bands$overall
+
+# Model with bands
+cv_lda_bands <- train(x =as.data.frame(training[-1]),
+                         y= training$activity,                      
+                          method="lda", preProcess="knnImpute",
+                         trControl = trcntr)
+
+cv_lda_bands
+
+pred_lda_bands <- predict(cv_lda_bands,testing)
+res_lda_bands <-confusionMatrix(data = pred_lda_bands, reference = testing$activity)
+res_lda_bands$overall
+
+
+# model with bands peanalised
+# deactivated as it breaks processing
+
+# library for PenalizedLDA
+#library(plyr)
+#library(dplyr)
+#cv_lda_bands_l1 <- train(x =as.data.frame(training[-1]),
+#                         y= training$activity,                      
+#                          method="PenalizedLDA", preProcess="knnImpute",
+#                         trControl = trcntr)
+#
+#pred_lda_bands_l1 <- predict(cv_lda_bands_l1,testing)
+#res_lda_bands_l1 <-confusionMatrix(data = pred_lda_bands_l1, reference = testing$activity)
+#res_lda_bands_l1$overall
+
+
+# knn without bands
+cv_knn <- train(x=training %>% dplyr::select(-activity,-contains("band")) %>% as.data.frame(),
+                         y= training$activity,                      
+                          method="knn", preProcess="knnImpute",
+                         trControl = trcntr)
+cv_knn
+pred_knn <- predict(cv_knn,testing)
+res_knn <- confusionMatrix(data = pred_knn, reference = testing$activity)
+res_knn$overall
+# knn with bands
+cv_knn_bands <- train(x=as.data.frame(training[-1]),
+                         y= training$activity,                      
+                          method="knn", preProcess="knnImpute",
+                         trControl = trcntr)
+cv_knn_bands
+pred_knn_bands <- predict(cv_knn_bands,testing)
+res_knn_bands <- confusionMatrix(data = pred_knn_bands, reference = testing$activity)
+
+
+res_list <- list(lda_no_b=res_lda_no_bands$overall,
+                 lda_b= res_lda_bands$overall,
+                 knn= res_knn$overall,
+                 knn_bands = res_knn_bands$overall)
+
+sapply(res_list,'[',1)
+
+
+
+```
+
+
+
+
+
 
 # Submissions
 
@@ -510,7 +603,7 @@ testing_df <- testing_df %>%
   # Only standardize features
   mutate_at(7:ncol(testing_df) , ~c(scale(.)))
 
-test_activities <- predict(model_lda_stepped, testing_df)
+test_activities <- predict(cv_lda_no_bands, testing_df)
 
 testing_df <- testing_df %>%
   mutate(activity = test_activities) 
