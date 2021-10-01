@@ -163,8 +163,6 @@ most_common_value = function(x) {
 ```
 ## Frequency domain features
 
-
-
 - Helper function that transforms a time-series df into one of spectral densities.
 
 ```{r}
@@ -179,40 +177,6 @@ spectralDF <- function(df){
   return(out)
 }
 ```
-
-
-```{r}
-spec <- spectrum(user1_df_acc$X1,plot=F)
-
-
-
-bands = seq(0, max(spec$freq), len=30)
-
-
-
-
-spec_df <- user1_df_acc %>% 
-    dplyr::select(-c(segment, sampleid)) %>%
-    group_by(userid, trial, epoch) %>%
-    mutate(activity = most_common_value(activity)) %>% 
-    ungroup()    %>%
-    nest(ts = c(X1, X2, X3)) %>% 
-    mutate(ts = map(ts, spectralDF))  %>%
-    unnest(cols = c(ts))
-
-
-spec_df %>% 
-  group_by(activity) %>% 
-  ggplot(aes(freq,log(X1))) + geom_line() +
-  facet_wrap(~activity, scales = "free_y")
-
-
-```
-
-
-
-
-- TODO: Exploratory plots of frequency bands per activity.
 
 - These function take two inputs:
   - A vector with the different frequencies
@@ -243,27 +207,24 @@ freq_var <- function(freq, spec){
 }
 ```
 
-
-- TODO: Features related to the energy of different spectral bands.
 ```{r}
-createBandSummary <- function(freq,X1,prefix){
-  
-  bands = seq(0, max(freq), len=5)
-  
-  specs <- data.frame(freq=freq,spec=X1,prefix)
+createBandSummary <- function(freq, dimension, prefix){
+  bands = seq(0, max(freq), len = 5)
+  specs <- data.frame(freq = freq, spec = dimension, prefix)
   bands_df <- specs %>% 
   mutate(band = findInterval(freq, bands)) %>% # find band to which freq belongs
   group_by(band) %>%
-  summarise(band_peak_freq = freq[which.max(spec)], band_power = mean(spec)) %>% pivot_wider(id_cols = band,names_from = band,values_from = c(band_peak_freq,band_power))
-  colnames(bands_df) <- paste0(prefix,"_",colnames(bands_df))
+    summarise(band_peak_freq = freq[which.max(spec)],
+              band_power = mean(spec))
+  %>% pivot_wider(id_cols = band,
+                  names_from = band,
+                  values_from = c(band_peak_freq,band_power))
+  colnames(bands_df) <- paste0(prefix, "_", colnames(bands_df))
   return(bands_df)
 }
 ```
 
 # Putting it all together
-
-
-
 
 - Extract time-domain features from the time-series of a sensor.
 
@@ -328,6 +289,7 @@ ungroup()
 
 ```{r}
 extractFreqDomainFeatures <- function(signals){
+  # Convert the time-series intro frequency spectrum
   freq_signals <- signals %>% 
     dplyr::select(-c(segment, sampleid)) %>%
     group_by(userid, trial, epoch) %>%
@@ -338,7 +300,7 @@ extractFreqDomainFeatures <- function(signals){
     unnest(cols = c(ts))
   
   
-  
+  # Extract features
   freq_df <- freq_signals %>% 
     group_by(userid, trial, epoch) %>%
     summarise(
@@ -357,9 +319,9 @@ extractFreqDomainFeatures <- function(signals){
       bands_x1 = createBandSummary(freq,X1,"X1"),
       bands_x2 = createBandSummary(freq,X2,"X2"),
       bands_x3 = createBandSummary(freq,X3,"X3")
-      
     ) %>%
-    unpack(cols = c(bands_x1,bands_x2,bands_x3)) %>% 
+    # Unpack frequency-band features
+    unpack(cols = c(bands_x1, bands_x2, bands_x3)) %>% 
     ungroup() %>% 
     rename(user_id = userid, exp_id = trial)
 
