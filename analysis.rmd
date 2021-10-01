@@ -207,15 +207,21 @@ freq_var <- function(freq, spec){
 }
 ```
 
+- Last, we include some features that analyze the shape of the frequency spectrum at different ranges
+
 ```{r}
 createBandSummary <- function(freq, dimension, prefix){
-  bands = seq(0, max(freq), len = 5)
+  # Divide the frequency spectrum into 5 bands
+  bands <- seq(0, max(freq), len = 5)
   specs <- data.frame(freq = freq, spec = dimension, prefix)
   bands_df <- specs %>% 
-  mutate(band = findInterval(freq, bands)) %>% # find band to which freq belongs
-  group_by(band) %>%
+    # Find band to which freq belongs
+    mutate(band = findInterval(freq, bands)) %>% 
+    group_by(band) %>%
+    # Extract the highest frequency and power per band
     summarise(band_peak_freq = freq[which.max(spec)],
-              band_power = mean(spec)) %>%
+            band_power = mean(spec)) %>%
+    # Pivot so each column is a feature
     pivot_wider(id_cols = band,
                 names_from = band,
                 values_from = c(band_peak_freq,band_power))
