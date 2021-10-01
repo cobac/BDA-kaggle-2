@@ -375,7 +375,7 @@ analysis_df <- extractFeatures("Train")
 # Model fitting
 ## Setup
 
-- There are XX out of XX epochs that are not 128 samples long, all from the unlabeled activity
+- There are 41 out of 1352 epochs that are not 128 samples long, all from the unlabeled activity.
  
 ```{r}
 analysis_df %>%
@@ -389,7 +389,7 @@ analysis_df %>%
   count(activity)
 ```
 
-- We decide to remove them so that the features that are sensible to the length of the epoch are not biased
+- We decide to remove them so that the features that are sensible to the length of the epoch are not biased.
 
 ```{r}
 analysis_df <- analysis_df %>%
@@ -406,7 +406,7 @@ analysis_df <- analysis_df %>%
   mutate_if(is.numeric, ~c(scale(.)))
 ```
 
-- There are some variables without variance.
+- There are some variables without variance, we delete them.
 
 ```{r}
 zero_var_is <- caret::nearZeroVar(analysis_df)
