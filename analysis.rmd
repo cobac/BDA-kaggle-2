@@ -101,11 +101,14 @@ extractSignals <- function(filename, sample_labels) {
 - We explore the histograms of the signals of a sample user.
 
 ```{r}
+# extract accelerator signals
 user1_df_acc <- extractSignals("./RawData/Train/acc_exp01_user01.txt", sample_labels)
+# extract gyroscope signals
 user1_df_gyr <- extractSignals("./RawData/Train/gyro_exp01_user01.txt", sample_labels)
 ```
 
 ```{r}
+# histograms of accelerator scales
 user1_df_acc %>%
   ggplot(aes(X1)) + 
   geom_histogram(bins=40, fill=1, alpha=0.5) + 
@@ -115,6 +118,7 @@ user1_df_acc %>%
 ```
 
 ```{r}
+# histograms of gyroscope scales
 user1_df_gyr %>%
   ggplot(aes(X1)) + 
   geom_histogram(bins=40, fill=1, alpha=0.5) + 
@@ -136,7 +140,7 @@ lagged_cor <- function(x, y=x, lag=0) {
 }
 ```
 
-- We also include the entropy of the time series.
+- We also include the entropy of the time series. Entropy is a measure for the "information" or "surprisingness" of a distribution, so might very well be distinct between activities and thus make for a good predictor between activities.
 
 ```{r}
 entropy  <- function(x, nbreaks = nclass.Sturges(x)) {
@@ -148,7 +152,7 @@ entropy  <- function(x, nbreaks = nclass.Sturges(x)) {
 }
 ```
 
-- Helper function to select the mode of a vector, taking into account NA values.
+Lastly, a helper function to select the mode of a vector, taking into account NA values.
 
 ```{r}
 most_common_value = function(x) {
@@ -163,13 +167,15 @@ most_common_value = function(x) {
 ```
 ## Frequency domain features
 
-- Helper function that transforms a time-series df into one of spectral densities.
+- Helper function that transforms a time-series dataframe into one of spectral densities.
 
 ```{r}
 spectralDF <- function(df){
+  # extract spectral bands for each time-series measure
   spectral_1 <- spectrum(df[, 1], plot = FALSE)
   spectral_2 <- spectrum(df[, 2], plot = FALSE)
   spectral_3 <- spectrum(df[, 3], plot = FALSE)
+  # create output tibble of all three spectral bands
   out <- tibble(freq = spectral_1$freq,
                 X1 = spectral_1$spec,
                 X2 = spectral_2$spec,
@@ -185,24 +191,23 @@ spectralDF <- function(df){
 - Our first feature is the frequency with the highest density, the average frequency and the frequency variance. These features are characteristic of different patterns.
 
 ```{r}
+# helper for maximum of spectral density
 peak <- function(freq, spec){
   return(freq[which.max(spec)])
 }
-```
 
-```{r}
+# helper to calculate the average frequency of a spectral density
 freq_mean <- function(freq, spec){
   df   = freq[2] - freq[1]
   sbar = sum(freq * spec * df)
   return(sbar)  
 }
-```
 
-```{r}
+# helper to calculate the variance of frequencies
 freq_var <- function(freq, spec){
   df   = freq[2] - freq[1]
-  xbar = sum(freq * spec * df)  
-  svar = sum((freq - xbar)^2 * spec * df)
+  xbar = sum(freq * spec * df)              # mean value
+  svar = sum((freq - xbar)^2 * spec * df)   # centralised second moment
   return(svar)  
 }
 ```
@@ -241,10 +246,10 @@ extractTimeDomainFeatures <- function(signals){
     group_by(userid, trial, epoch) %>%
     summarise(
       # Epoch's, activity labels, initial sample & no. of samples
-      activity = as.factor(most_common_value(c("-", activity))),
+      activity = as.factor(most_common_value(activity)),
       sampleid = sampleid[1],
       n_samples = n(),
-      # Features
+      ## Descriptive Features
       # means
       m1 = mean(X1), 
       m2 = mean(X2),
@@ -260,9 +265,16 @@ extractTimeDomainFeatures <- function(signals){
       skew1 = e1071::skewness(X1),
       skew2 = e1071::skewness(X2),
       skew3 = e1071::skewness(X3),
+      # kurtosis
       kurt1 = e1071::kurtosis(X1),
       kurt2 = e1071::kurtosis(X2),
       kurt3 = e1071::kurtosis(X3),
+      # Entropy
+      entropy1 = entropy(X1),
+      entropy2 = entropy(X2),
+      entropy3 = entropy(X3),
+      
+      ## Time-domain features - correlation & autoregression
       # correlation between series
       cor12 = cor(X1, X2, use = "pairwise"),
       cor23 = cor(X2, X3, use = "pairwise"),
@@ -278,11 +290,7 @@ extractTimeDomainFeatures <- function(signals){
       # auto-/cross-correlation X3
       AR31 = lagged_cor(X3, X1, lag=1),
       AR32 = lagged_cor(X3, X2, lag=1),
-      AR33 = lagged_cor(X3, lag=1),
-      # Entropy
-      entropy1 = entropy(X1),
-      entropy2 = entropy(X2),
-      entropy3 = entropy(X3)
+      AR33 = lagged_cor(X3, lag=1)
     )  %>%
 rename(user_id = userid, exp_id = trial) %>%
 ungroup()
@@ -311,17 +319,21 @@ extractFreqDomainFeatures <- function(signals){
     group_by(userid, trial, epoch) %>%
     summarise(
       # Lables
-      activity = as.factor(most_common_value(c("-", activity))),
-      # Features
+      activity = as.factor(most_common_value(activity)),
+      ## Features
+      # peaks
       peak_x1 = peak(freq, X1),
       peak_x2 = peak(freq, X2),
       peak_x3 = peak(freq, X3),
+      # mean frequencies
       freq_mean_x1 = freq_mean(freq, X1),
       freq_mean_x2 = freq_mean(freq, X2),
       freq_mean_x3 = freq_mean(freq, X3),
+      # frequnecy variance
       freq_var_x1 = freq_var(freq, X1),
       freq_var_x2 = freq_var(freq, X2),
       freq_var_x3 = freq_var(freq, X3),
+      # band summaries
       bands_x1 = createBandSummary(freq,X1,"X1"),
       bands_x2 = createBandSummary(freq,X2,"X2"),
       bands_x3 = createBandSummary(freq,X3,"X3")
@@ -349,16 +361,16 @@ extractFeatures <- function(dataset){
 
   # Calculate time-domain features
   time_df <- left_join(extractTimeDomainFeatures(data_acc),
-                     extractTimeDomainFeatures(data_gyr),
-                     by = c("user_id", "exp_id", "epoch",
-                            "activity", "sampleid", "n_samples"),
-                     suffix = c("_acc", "_gyr"))
+                       extractTimeDomainFeatures(data_gyr),
+                       by = c("user_id", "exp_id", "epoch",
+                              "activity", "sampleid", "n_samples"),
+                       suffix = c("_acc", "_gyr"))
 
-# Calculate frequency-domain features
-freq_df <- left_join(extractFreqDomainFeatures(data_acc),
-                                         extractFreqDomainFeatures(data_gyr),
-                                         by = c("user_id", "exp_id", "epoch","activity"),
-                     suffix = c("_acc", "_gyr"))
+  # Calculate frequency-domain features
+  freq_df <- left_join(extractFreqDomainFeatures(data_acc),
+                       extractFreqDomainFeatures(data_gyr),
+                       by = c("user_id", "exp_id", "epoch","activity"),
+                       suffix = c("_acc", "_gyr"))
                      
   # Merge time_df and freq_df
   output_df <- left_join(time_df, freq_df,
@@ -368,12 +380,15 @@ freq_df <- left_join(extractFreqDomainFeatures(data_acc),
 }
 ```
 
-```{r}
-analysis_df <- extractFeatures("Train")
-```
 
 # Model fitting
 ## Setup
+
+Now, we extract all the features for the training dataset with the feature extraction function above:
+
+```{r}
+analysis_df <- extractFeatures("Train")
+```
 
 - There are 41 out of 1352 epochs that are not 128 samples long, all from the unlabeled activity.
  
@@ -389,24 +404,21 @@ analysis_df %>%
   count(activity)
 ```
 
-- We decide to remove them so that the features that are sensible to the length of the epoch are not biased.
+- We decide to remove them so that the features that are sensible to the length of the epoch are not biased. Since this only concerns few features overall, excluding them should not bias our model substantially.
 
 ```{r}
+# remove samples that are not a full epoch
 analysis_df <- analysis_df %>%
-  filter(n_samples == 128)
-```
+  filter(n_samples == 128) %>%
 
-```{r}
 # Remove non-feature variables
-analysis_df <- analysis_df %>%
-  dplyr::select(-c(user_id, exp_id, epoch, sampleid, n_samples))
+  dplyr::select(-c(user_id, exp_id, epoch, sampleid, n_samples)) %>%
 
 # Standardize numeric variables
-analysis_df <- analysis_df %>%
   mutate_if(is.numeric, ~c(scale(.)))
 ```
 
-- There are some variables without variance, we delete them.
+- There are some variables without variance, we delete them as they do not add informational values.
 
 ```{r}
 zero_var_is <- caret::nearZeroVar(analysis_df)
@@ -415,50 +427,49 @@ head(zero_var_is)
 analysis_df <- analysis_df[,-zero_var_is]
 ```
 
-- Delete redundant variables because they are highly correlated with others.
+- We delete redundant variables if they are highly correlated with others, because co-linear predictors increase the risk for overfitting over generating potential informational value.
 
 ```{r}
 cor_var_is <- caret::findCorrelation(cor(use = "pairwise.complete.obs",analysis_df %>%
                                            dplyr::select(-activity))) + 1
 print(cor_var_is)
-```
 
-```{r}
 analysis_df <- analysis_df[, -cor_var_is]
 ```
 
-## Model 1 - Linear discriminant analysis
+## Model choices
+
+### Model 1 - Linear discriminant analysis
 
 ```{r}
 model_lda <- MASS::lda(activity ~ ., data = analysis_df) 
 ```
 
-## Model 2 - Naive Bayes classifier
+### Model 2 - Naive Bayes classifier
 
 ```{r}
 model_naive_bayes <- e1071::naiveBayes(activity ~ ., data = analysis_df) 
 ```
 
-## Why not other models
+### Why not other models
 - Since we have a substantial number of variables, we think K-nearest neighbours algorithms will not perform adequately.
 - Similarly, a quadratic discriminant analysis classifier will need to fit a very large number of parameters. QDA might potentially be a good model for this scenario if we performed some sort of feature selection first.
 
 ## Model selection
 
-- K-fold cross-validation with k = 10 to select the best model.
+K-fold cross-validation with k = 10 to select the best model:
 
 ```{r}
 trcntr <- trainControl('cv', number = 10)
 ```
-
+- We fit the LDA without the features based on frequency bands:
 ```{r}
 # without bands
-
 cv_lda <- caret::train(activity ~ ., data = analysis_df %>% dplyr::select(-contains("band")),
                        method="lda", trControl = trcntr,na.action=na.exclude)
 cv_lda 
 ```
-
+- and a Naive Bayes with frequency bands
 ```{r}
 cv_naive_bayes <- caret::train(activity ~ ., data = analysis_df,
                                method="naive_bayes", trControl = trcntr)
@@ -467,7 +478,9 @@ cv_naive_bayes
 
 - The linear discriminant classifier seems to perform better.
 - Our final model is a linear discriminant model, but we select features step-wise using 10-fold CV accuracy as our selection criteria.
-  - However, this model is only selecting three features and perfroms worse than the plain LDA, we will have to adjust the setep-wise process.
+  - However, this model is only selecting three features and perfroms worse than the plain LDA.
+  
+Therefore, we adjust the step-wise process.
 
 ```{r}
  model_lda_stepped <- train(activity ~ ., data = analysis_df,
@@ -476,22 +489,24 @@ cv_naive_bayes
  model_lda_stepped$finalModel
 ```
 
-Penalized L1 LDA
+- Penalized L1 LDA
 
 ```{r}
-l1_lda <- caret::train(x=as.data.frame(analysis_df[-1]),y=analysis_df$activity,method ="PenalizedLDA",na.action=na.exclude)
+l1_lda <- caret::train(x = as.data.frame(analysis_df[-1]),
+                       y = analysis_df$activity,method ="PenalizedLDA",
+                       na.action = na.exclude)
 
 l1_lda$results$Accuracy
 ```
 
-Model with power features
+- Model with power features
 ```{r}
 cv_lda_band <- caret::train(activity ~ ., data = analysis_df,
                        method="lda", trControl = trcntr,na.action=na.exclude)
 cv_lda $results$Accuracy
 cv_lda_band$results$Accuracy
-
 ```
+
 ## Visual Comparison of Accuracy
 
 ```{r}
@@ -573,11 +588,6 @@ sapply(res_list,'[',1)
 
 
 ```
-
-
-
-
-
 
 # Submissions
 
