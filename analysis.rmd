@@ -320,16 +320,20 @@ extractFreqDomainFeatures <- function(signals){
     summarise(
       # Lables
       activity = as.factor(most_common_value(activity)),
-      # Features
+      ## Features
+      # peaks
       peak_x1 = peak(freq, X1),
       peak_x2 = peak(freq, X2),
       peak_x3 = peak(freq, X3),
+      # mean frequencies
       freq_mean_x1 = freq_mean(freq, X1),
       freq_mean_x2 = freq_mean(freq, X2),
       freq_mean_x3 = freq_mean(freq, X3),
+      # frequnecy variance
       freq_var_x1 = freq_var(freq, X1),
       freq_var_x2 = freq_var(freq, X2),
       freq_var_x3 = freq_var(freq, X3),
+      # band summaries
       bands_x1 = createBandSummary(freq,X1,"X1"),
       bands_x2 = createBandSummary(freq,X2,"X2"),
       bands_x3 = createBandSummary(freq,X3,"X3")
