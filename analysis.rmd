@@ -215,10 +215,10 @@ createBandSummary <- function(freq, dimension, prefix){
   mutate(band = findInterval(freq, bands)) %>% # find band to which freq belongs
   group_by(band) %>%
     summarise(band_peak_freq = freq[which.max(spec)],
-              band_power = mean(spec))
-  %>% pivot_wider(id_cols = band,
-                  names_from = band,
-                  values_from = c(band_peak_freq,band_power))
+              band_power = mean(spec)) %>%
+    pivot_wider(id_cols = band,
+                names_from = band,
+                values_from = c(band_peak_freq,band_power))
   colnames(bands_df) <- paste0(prefix, "_", colnames(bands_df))
   return(bands_df)
 }
@@ -369,7 +369,26 @@ analysis_df <- extractFeatures("Train")
 # Model fitting
 ## Setup
 
+- There are XX out of XX epochs that are not 128 samples long, all from the unlabeled activity
+ 
+```{r}
+analysis_df %>%
+  filter(n_samples != 128) %>%
+  count(activity)
+```
 
+```{r}
+analysis_df %>%
+  filter(activity == "-") %>%
+  count(activity)
+```
+
+- We decide to remove them so that the features that are sensible to the length of the epoch are not biased
+
+```{r}
+analysis_df <- analysis_df %>%
+  filter(n_samples == 128)
+```
 
 ```{r}
 # Remove non-feature variables
@@ -400,7 +419,6 @@ print(cor_var_is)
 
 ```{r}
 analysis_df <- analysis_df[, -cor_var_is]
-
 ```
 
 ## Model 1 - Linear discriminant analysis
